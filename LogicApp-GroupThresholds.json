@@ -1,0 +1,133 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": { "type": "Object", "defaultValue": {} },
+    "teamId":       { "type": "String", "defaultValue": "<YOUR-TEAM-ID>" },
+    "channelId":    { "type": "String", "defaultValue": "<YOUR-CHANNEL-ID>" },
+    "groupIds": {
+      "type": "Array",
+      "defaultValue": [
+        "00000000-0000-0000-0000-000000000111",
+        "00000000-0000-0000-0000-000000000222"
+      ]
+    },
+    "groupCapacity": { "type": "Int", "defaultValue": 200000 },
+    "thresholdLeft": { "type": "Int", "defaultValue": 80 }
+  },
+  "triggers": {
+    "Every_day": {
+      "type": "Recurrence",
+      "recurrence": { "frequency": "Day", "interval": 1 }
+    }
+  },
+  "actions": {
+    "For_Each_Group": {
+      "type": "Foreach",
+      "foreach": "@parameters('groupIds')",
+      "actions": {
+        "Get_Group_Details": {
+          "type": "Http",
+          "inputs": {
+            "method": "GET",
+            "uri": "https://graph.microsoft.com/v1.0/groups/@{item()}?$select=id,displayName",
+            "authentication": { "type": "ManagedServiceIdentity" }
+          }
+        },
+        "Get_Member_Count": {
+          "type": "Http",
+          "inputs": {
+            "method": "GET",
+            "uri": "https://graph.microsoft.com/v1.0/groups/@{item()}/members?$count=true&$top=1",
+            "headers": { "ConsistencyLevel": "eventual" },
+            "authentication": { "type": "ManagedServiceIdentity" }
+          },
+          "runAfter": { "Get_Group_Details": [ "Succeeded" ] }
+        },
+        "Compose_Row": {
+          "type": "Compose",
+          "inputs": {
+            "GroupName": "@body('Get_Group_Details')?['displayName']",
+            "Total": "@parameters('groupCapacity')",
+            "Used": "@coalesce(body('Get_Member_Count')?['@odata.count'], 0)",
+            "Available": "@sub(parameters('groupCapacity'), coalesce(body('Get_Member_Count')?['@odata.count'], 0))",
+            "PercentLeft": "@mul(div(sub(parameters('groupCapacity'), coalesce(body('Get_Member_Count')?['@odata.count'], 0)), max(parameters('groupCapacity'),1)), 100)"
+          },
+          "runAfter": { "Get_Member_Count": [ "Succeeded" ] }
+        },
+        "Append_to_Results": {
+          "type": "AppendToArrayVariable",
+          "inputs": { "name": "results", "value": "@outputs('Compose_Row')" },
+          "runAfter": { "Compose_Row": [ "Succeeded" ] }
+        }
+      }
+    },
+    "Init_results": {
+      "type": "InitializeVariable",
+      "inputs": { "name": "results", "type": "Array", "value": [] },
+      "runAfter": {}
+    },
+    "Run_Loop": {
+      "type": "Scope",
+      "actions": {
+        "Run_Foreach": "@actions('For_Each_Group')"
+      },
+      "runAfter": { "Init_results": [ "Succeeded" ] }
+    },
+    "Filter_Below_Threshold": {
+      "type": "Query",
+      "inputs": {
+        "from": "@variables('results')",
+        "where": "@less(item()?['PercentLeft'], parameters('thresholdLeft'))"
+      },
+      "runAfter": { "Run_Loop": [ "Succeeded" ] }
+    },
+    "Condition_Send": {
+      "type": "If",
+      "expression": { "greater": [ "@length(body('Filter_Below_Threshold'))", 0 ] },
+      "actions": {
+        "Build_AdaptiveCard": {
+          "type": "Compose",
+          "inputs": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.6",
+            "body": [
+              { "type": "TextBlock", "text": "Group Threshold Monitoring", "size": "Large", "weight": "Bolder" },
+              { "type": "TextBlock", "text": "Alert: Some monitored groups are below capacity threshold", "wrap": true, "color": "Attention" },
+              {
+                "type": "Table",
+                "firstRowAsHeaders": true,
+                "columns": [
+                  { "type": "TableColumnDefinition", "width": "stretch" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" }
+                ],
+                "rows": "@{variables('results')}"
+              }
+            ]
+          }
+        },
+        "Post_to_Teams": {
+          "type": "ApiConnection",
+          "inputs": {
+            "method": "post",
+            "path": "/beta/teams/@{parameters('teamId')}/channels/@{parameters('channelId')}/messages",
+            "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+            "body": { "body": { "contentType": "html", "content": "@{json(string(outputs('Build_AdaptiveCard')))}" } }
+          },
+          "runAfter": { "Build_AdaptiveCard": [ "Succeeded" ] }
+        }
+      },
+      "else": {},
+      "runAfter": { "Filter_Below_Threshold": [ "Succeeded" ] }
+    }
+  },
+  "outputs": {}
+}
+Notes
+• The member count call uses $count=true with ConsistencyLevel: eventual.
+• groupIds is your monitor list (fill with real GUIDs).
+• Adjust thresholdLeft as needed (default 80% left).
