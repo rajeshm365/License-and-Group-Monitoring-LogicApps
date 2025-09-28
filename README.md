@@ -28,6 +28,10 @@ Each alert posts a **Teams Adaptive Card** with a compact table:
 - **Licenses**: `License | Total | Available | Used | PercentRemaining`
 - **Groups**: `GroupName | Total | Available | Used | PercentLeft`
 
+## Notes
+- Lists (`licenseSkuFilter`, `groupIds`) are **expandable**.
+- Adaptive Card 1.6 **Table** used; keep payload sizes sensible.
+- For large tenants, consider paging or batching.
 ## 🏗️ Architecture
 
 ```mermaid
@@ -44,8 +48,3 @@ flowchart TD
     GPROC --> GCHECK{Any below threshold}
     GCHECK -- No --> GEND[No post]
     GCHECK -- Yes --> GPOST[Post adaptive card to Teams]
-
-## Notes
-- Lists (`licenseSkuFilter`, `groupIds`) are **expandable**.
-- Adaptive Card 1.6 **Table** used; keep payload sizes sensible.
-- For large tenants, consider paging or batching.
