@@ -1,0 +1,143 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": { "type": "Object", "defaultValue": {} },
+    "teamId":       { "type": "String", "defaultValue": "<YOUR-TEAM-ID>" },
+    "channelId":    { "type": "String", "defaultValue": "<YOUR-CHANNEL-ID>" },
+    "licenseSkuFilter": {
+      "type": "Array",
+      "defaultValue": [
+        "ENTERPRISEPREMIUM",             // E5 core
+        "SPE_E5",                        // E5 suite (example)
+        "MCOMEETADV"                     // Audio Conferencing (example)
+      ]
+    },
+    "thresholdPercent": { "type": "Int", "defaultValue": 85 }
+  },
+  "triggers": {
+    "Every_day": {
+      "type": "Recurrence",
+      "recurrence": { "frequency": "Day", "interval": 1 }
+    }
+  },
+  "actions": {
+    "Get_Licenses_subscribedSkus": {
+      "type": "Http",
+      "inputs": {
+        "method": "GET",
+        "uri": "https://graph.microsoft.com/v1.0/subscribedSkus",
+        "authentication": { "type": "ManagedServiceIdentity" }
+      },
+      "runAfter": {}
+    },
+    "Parse_JSON_Licenses": {
+      "type": "ParseJson",
+      "inputs": {
+        "content": "@body('Get_Licenses_subscribedSkus')",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "skuId": { "type": "string" },
+                  "skuPartNumber": { "type": "string" },
+                  "prepaidUnits": {
+                    "type": "object",
+                    "properties": { "enabled": { "type": "integer" } }
+                  },
+                  "consumedUnits": { "type": "integer" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "runAfter": { "Get_Licenses_subscribedSkus": [ "Succeeded" ] }
+    },
+    "Filter_Selected_SKUs": {
+      "type": "Query",
+      "inputs": {
+        "from": "@body('Parse_JSON_Licenses')?['value']",
+        "where": "@contains(join(parameters('licenseSkuFilter'),','), item()?['skuPartNumber'])"
+      },
+      "runAfter": { "Parse_JSON_Licenses": [ "Succeeded" ] }
+    },
+    "Project_Table": {
+      "type": "Select",
+      "inputs": {
+        "from": "@body('Filter_Selected_SKUs')",
+        "select": {
+          "License": "@item()?['skuPartNumber']",
+          "Total": "@item()?['prepaidUnits']?['enabled']",
+          "Used": "@item()?['consumedUnits']",
+          "Available": "@sub(item()?['prepaidUnits']?['enabled'], item()?['consumedUnits'])",
+          "PercentRemaining": "@mul(div(sub(item()?['prepaidUnits']?['enabled'], item()?['consumedUnits']), max(item()?['prepaidUnits']?['enabled'],1)), 100)"
+        }
+      },
+      "runAfter": { "Filter_Selected_SKUs": [ "Succeeded" ] }
+    },
+    "Any_Below_Threshold": {
+      "type": "Query",
+      "inputs": {
+        "from": "@body('Project_Table')",
+        "where": "@less(item()?['PercentRemaining'], parameters('thresholdPercent'))"
+      },
+      "runAfter": { "Project_Table": [ "Succeeded" ] }
+    },
+    "Condition_Send": {
+      "type": "If",
+      "expression": {
+        "or": [
+          { "greater": [ "@length(body('Any_Below_Threshold'))", 0 ] }
+        ]
+      },
+      "actions": {
+        "Build_AdaptiveCard": {
+          "type": "Compose",
+          "inputs": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.6",
+            "body": [
+              { "type": "TextBlock", "text": "License Usage Monitoring", "size": "Large", "weight": "Bolder" },
+              { "type": "TextBlock", "text": "Alert: Some licenses are below threshold", "wrap": true, "color": "Attention" },
+              { "type": "Table",
+                "firstRowAsHeaders": true,
+                "columns": [
+                  { "type": "TableColumnDefinition", "width": "stretch" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" },
+                  { "type": "TableColumnDefinition", "width": "auto" }
+                ],
+                "rows": "@{body('Project_Table')}"
+              }
+            ]
+          }
+        },
+        "Post_to_Teams": {
+          "type": "ApiConnection",
+          "inputs": {
+            "method": "post",
+            "path": "/beta/teams/@{parameters('teamId')}/channels/@{parameters('channelId')}/messages",
+            "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+            "body": { "body": { "contentType": "html", "content": "@{json(string(outputs('Build_AdaptiveCard')))}" } }
+          },
+          "runAfter": { "Build_AdaptiveCard": [ "Succeeded" ] }
+        }
+      },
+      "else": {},
+      "runAfter": { "Any_Below_Threshold": [ "Succeeded" ] }
+    }
+  },
+  "outputs": {}
+}
+
+Notes
+• The Table element expects an array of row objects. Logic Apps/Adaptive Cards 1.6 can take rows as an array—this template feeds Project_Table directly.
+• You can widen the licenseSkuFilter array as needed.
+• Teams connector path varies by region/sku; keep the $connections parameter as-is and wire the connection in the portal.
