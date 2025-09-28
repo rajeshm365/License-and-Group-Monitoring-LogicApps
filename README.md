@@ -21,14 +21,15 @@ Two Azure Logic Apps using **Managed Identity** + **Microsoft Graph** to keep an
 4. **Add Teams connection** in Logic App designer; it will populate `$connections`.
 5. **Schedule** – recurrences are set to daily by default.
 
-## Output
-Teams **Adaptive Card** table with:
-- **License**: Name | Total | Available | Used | %Remaining
-- **Groups**: Group Name | Total | Available | Used | %Left
+## ✅ Output
+
+Each alert posts a **Teams Adaptive Card** with a compact table:
+
+- **Licenses**: `License | Total | Available | Used | PercentRemaining`
+- **Groups**: `GroupName | Total | Available | Used | PercentLeft`
 
 ## 🏗️ Architecture
 
-### High level
 ```mermaid
 flowchart TD
     A[Logic App license] --> LGET[Graph get subscribedSkus]
@@ -43,7 +44,6 @@ flowchart TD
     GPROC --> GCHECK{Any below threshold}
     GCHECK -- No --> GEND[No post]
     GCHECK -- Yes --> GPOST[Post adaptive card to Teams]
-
 ## Notes
 - Lists (`licenseSkuFilter`, `groupIds`) are **expandable**.
 - Adaptive Card 1.6 **Table** used; keep payload sizes sensible.
