@@ -44,6 +44,7 @@ flowchart TD
     GPROC --> GCHECK{Any below threshold}
     GCHECK -- No --> GEND[No post]
     GCHECK -- Yes --> GPOST[Post adaptive card to Teams]
+
 ## Notes
 - Lists (`licenseSkuFilter`, `groupIds`) are **expandable**.
 - Adaptive Card 1.6 **Table** used; keep payload sizes sensible.
