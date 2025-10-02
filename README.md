@@ -33,6 +33,7 @@ Each alert posts a **Teams Adaptive Card** with a compact table:
 - Adaptive Card 1.6 **Table** used; keep payload sizes sensible.
 - For large tenants, consider paging or batching.
 ## 🏗️ Architecture
+<img width="945" height="385" alt="image" src="https://github.com/user-attachments/assets/d8421915-505d-4b86-9ce6-10971bb2f134" />
 
 ```mermaid
 flowchart TD
@@ -48,4 +49,4 @@ flowchart TD
     GPROC --> GCHECK{Any below threshold}
     GCHECK -- No --> GEND[No post]
     GCHECK -- Yes --> GPOST[Post adaptive card to Teams]
-<img width="945" height="385" alt="image" src="https://github.com/user-attachments/assets/9fa421fc-7675-410d-b85e-fc7878bec236" />
+
