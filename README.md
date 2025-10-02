@@ -48,3 +48,4 @@ flowchart TD
     GPROC --> GCHECK{Any below threshold}
     GCHECK -- No --> GEND[No post]
     GCHECK -- Yes --> GPOST[Post adaptive card to Teams]
+<img width="945" height="385" alt="image" src="https://github.com/user-attachments/assets/9fa421fc-7675-410d-b85e-fc7878bec236" />
